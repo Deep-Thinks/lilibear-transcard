@@ -1,0 +1,29 @@
+[Unit]
+Description=lilibear-transcard HTTP server (栗栗熊透卡生成器)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/lilibear_transcard
+EnvironmentFile=/opt/lilibear_transcard/.env
+# 生产监听 127.0.0.1:18084，由 nginx 反代
+Environment=BIND_HOST=127.0.0.1
+Environment=PORT=18084
+ExecStart=/usr/bin/python3 -u /opt/lilibear_transcard/server.py
+Restart=always
+RestartSec=3
+User=root
+Group=root
+StandardOutput=append:/opt/lilibear_transcard/logs/server.out
+StandardError=append:/opt/lilibear_transcard/logs/server.err
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/lilibear_transcard
+
+[Install]
+WantedBy=multi-user.target

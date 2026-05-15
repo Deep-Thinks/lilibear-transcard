@@ -1,0 +1,37 @@
+# —— 密钥与本地配置（绝不进 git） ——
+.env
+.env.local
+CLAUDE.md
+
+# —— 运行时落盘 ——
+logs/
+*.db
+*.db-wal
+*.db-shm
+
+# —— Python ——
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.python-version
+
+# —— 编辑器 / OS ——
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# —— Claude / 助手私有目录 ——
+.claude/
+.context/
+.playwright-mcp/
+
+# —— 调试输出 ——
+ui-*.png
+e2e_*.bin
+*.original.png
+/tmp/

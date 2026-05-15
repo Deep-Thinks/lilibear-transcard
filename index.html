@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#fff5e6">
+<title>栗栗熊透卡生成器 · 厦门大学美食协会</title>
+<link rel="icon" href="/refs/lilibear_logo.png">
+<meta property="og:title" content="栗栗熊透卡生成器">
+<meta property="og:description" content="上传美食照片，让栗栗熊给你做一张 INS 风 PVC 透卡">
+<meta property="og:image" content="/refs/lilibear_logo.png">
+<style>
+  :root {
+    --bg: #fff5e6;
+    --bg-card: #ffffff;
+    --ink: #2a1d10;
+    --ink-soft: #6b5a48;
+    --accent: #f4a259;
+    --accent-deep: #d97706;
+    --danger: #d64545;
+    --border: #f0d9b5;
+    --shadow: 0 8px 28px rgba(170, 110, 40, 0.12);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-tap-highlight-color: transparent; }
+  body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column;
+    align-items: center; padding: 24px 16px 64px; }
+
+  header { width: 100%; max-width: 720px; text-align: center; margin-bottom: 22px; }
+  .logo { width: 84px; height: 84px; border-radius: 50%; object-fit: cover;
+    box-shadow: var(--shadow); background: #fff; }
+  h1 { margin: 14px 0 6px; font-size: 26px; font-weight: 700; letter-spacing: 0.5px; }
+  .tagline { color: var(--ink-soft); font-size: 14px; margin: 0; line-height: 1.6; }
+
+  main { width: 100%; max-width: 720px; }
+  .card { background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 18px; padding: 22px; box-shadow: var(--shadow);
+    margin-bottom: 18px; }
+
+  /* ---------- 上传卡 ---------- */
+  .uploader { display: block; position: relative; cursor: pointer;
+    border: 2px dashed var(--accent); border-radius: 14px;
+    padding: 32px 16px; text-align: center; transition: all .15s;
+    background: #fffaf2; }
+  .uploader:hover, .uploader.dragover {
+    background: #fff1dc; border-color: var(--accent-deep); }
+  .uploader input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .uploader-title { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+  .uploader-sub { color: var(--ink-soft); font-size: 13px; line-height: 1.6; }
+
+  .preview { display: none; margin-top: 16px; text-align: center; }
+  .preview img { max-width: 100%; max-height: 320px; border-radius: 12px;
+    box-shadow: var(--shadow); }
+  .preview .meta { color: var(--ink-soft); font-size: 13px; margin-top: 8px; }
+
+  .btn-row { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  .btn { flex: 1; min-width: 130px; padding: 12px 18px; border: none; cursor: pointer;
+    font-size: 15px; font-weight: 600; border-radius: 12px; transition: all .15s;
+    font-family: inherit; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-deep); }
+  .btn-primary:disabled { background: #e6c8a3; cursor: not-allowed; }
+  .btn-ghost { background: transparent; color: var(--ink-soft);
+    border: 1px solid var(--border); }
+  .btn-ghost:hover { background: #fffaf2; }
+
+  /* ---------- 状态 / 错误 ---------- */
+  .status { margin-top: 14px; padding: 12px 14px; border-radius: 10px;
+    font-size: 14px; display: none; }
+  .status.loading { display: block; background: #fff7ea;
+    border: 1px solid var(--border); color: var(--ink); }
+  .status.error { display: block; background: #fdecec;
+    border: 1px solid #f5b5b5; color: var(--danger); }
+  .spinner { display: inline-block; width: 14px; height: 14px;
+    border: 2px solid rgba(217, 119, 6, 0.25); border-top-color: var(--accent-deep);
+    border-radius: 50%; animation: spin .9s linear infinite;
+    vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .stages { display: flex; gap: 8px; margin-top: 10px; font-size: 12.5px;
+    color: var(--ink-soft); flex-wrap: wrap; }
+  .stage { padding: 2px 8px; border-radius: 6px; background: #fff; border: 1px solid var(--border); }
+  .stage.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .stage.done { background: #d4f3d0; border-color: #aedda7; color: #2c6a2c; }
+
+  /* ---------- 结果 ---------- */
+  .result-img { display: block; width: 100%; height: auto; border-radius: 14px;
+    box-shadow: var(--shadow); }
+  .result-meta { color: var(--ink-soft); font-size: 13px; margin-top: 10px;
+    text-align: center; line-height: 1.7; }
+
+  footer { color: var(--ink-soft); font-size: 12px; margin-top: 30px;
+    text-align: center; max-width: 720px; line-height: 1.7; }
+  footer a { color: var(--accent-deep); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header>
+  <img src="/refs/lilibear_logo.png" alt="栗栗熊" class="logo">
+  <h1>栗栗熊透卡生成器</h1>
+  <p class="tagline">
+    上传一张美食照片，栗栗熊会和你的食物一起出镜<br>
+    生成一张 INS 风 PVC 透卡 · 厦门大学美食协会
+  </p>
+</header>
+
+<main>
+  <div class="card">
+    <label class="uploader" id="uploader">
+      <input type="file" id="file" accept="image/png,image/jpeg,image/webp">
+      <div class="uploader-title">点击或拖动上传美食照片</div>
+      <div class="uploader-sub">JPG / PNG / WEBP · 最大 12MB · 主体是食物</div>
+    </label>
+
+    <div class="preview" id="preview">
+      <img id="preview-img" alt="待生成">
+      <div class="meta" id="preview-meta"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btn-go">让栗栗熊出镜 → 生成透卡</button>
+        <button class="btn btn-ghost" id="btn-reset">换一张</button>
+      </div>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="stages" id="stages" style="display:none">
+      <span class="stage" data-k="audit">① 栗栗熊审稿</span>
+      <span class="stage" data-k="image">② 透卡绘制 (~30-60s)</span>
+      <span class="stage" data-k="done">③ 完工</span>
+    </div>
+  </div>
+
+  <div class="card" id="result-card" style="display:none">
+    <img id="result-img" class="result-img" alt="透卡">
+    <div class="result-meta" id="result-meta"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-download">下载透卡 PNG</button>
+      <button class="btn btn-ghost" id="btn-again">再做一张</button>
+    </div>
+  </div>
+</main>
+
+<footer>
+  姊妹项目：
+  <a href="https://world.xmu-cuisine.club" target="_blank">栗栗熊环游世界</a> ·
+  <a href="https://explorecipe.xmu-cuisine.club" target="_blank">ExploreCipe</a><br>
+  &copy; 厦门大学美食协会 · Powered by gpt-image-2 + Gemini 3 Flash
+</footer>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const uploader = $('uploader');
+  const fileInput = $('file');
+  const preview = $('preview');
+  const previewImg = $('preview-img');
+  const previewMeta = $('preview-meta');
+  const btnGo = $('btn-go');
+  const btnReset = $('btn-reset');
+  const btnDownload = $('btn-download');
+  const btnAgain = $('btn-again');
+  const statusEl = $('status');
+  const stagesEl = $('stages');
+  const resultCard = $('result-card');
+  const resultImg = $('result-img');
+  const resultMeta = $('result-meta');
+
+  let currentFile = null;
+  let currentResultBlobUrl = null;
+
+  // ---------- 上传：点击 + 拖拽 ----------
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) loadFile(e.target.files[0]);
+  });
+  ['dragover', 'dragenter'].forEach(ev => {
+    uploader.addEventListener(ev, (e) => {
+      e.preventDefault(); uploader.classList.add('dragover');
+    });
+  });
+  ['dragleave', 'drop'].forEach(ev => {
+    uploader.addEventListener(ev, (e) => {
+      e.preventDefault(); uploader.classList.remove('dragover');
+    });
+  });
+  uploader.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      loadFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  function loadFile(f) {
+    if (!/^image\/(png|jpeg|webp)$/.test(f.type)) {
+      return showError('只支持 JPG / PNG / WEBP 格式');
+    }
+    if (f.size > 12 * 1024 * 1024) {
+      return showError('图片过大（最大 12MB）');
+    }
+    currentFile = f;
+    const url = URL.createObjectURL(f);
+    previewImg.src = url;
+    previewMeta.textContent = f.name + ' · ' + (f.size / 1024).toFixed(1) + ' KB';
+    preview.style.display = 'block';
+    hideStatus();
+    hideResult();
+    setStages('idle');
+  }
+
+  // ---------- 按钮 ----------
+  btnReset.addEventListener('click', () => {
+    currentFile = null;
+    fileInput.value = '';
+    preview.style.display = 'none';
+    hideStatus();
+    hideResult();
+    setStages('idle');
+  });
+
+  btnAgain.addEventListener('click', () => btnReset.click());
+
+  btnGo.addEventListener('click', () => {
+    if (!currentFile) return showError('请先上传美食照片');
+    submit();
+  });
+
+  btnDownload.addEventListener('click', () => {
+    if (!currentResultBlobUrl) return;
+    const a = document.createElement('a');
+    a.href = currentResultBlobUrl;
+    a.download = 'lilibear_transcard_' + Date.now() + '.png';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  });
+
+  // ---------- 提交 ----------
+  async function submit() {
+    btnGo.disabled = true;
+    hideResult();
+    showLoading('栗栗熊正在审稿…');
+    setStages('audit');
+
+    const fd = new FormData();
+    fd.append('image', currentFile);
+
+    // 阶段切到"绘制"——审稿到绘制之间没有进度事件，靠 ~5s 后启发式切换
+    let stageTimer = setTimeout(() => setStages('image'), 5000);
+
+    try {
+      const resp = await fetch('/api/generate', { method: 'POST', body: fd });
+      clearTimeout(stageTimer);
+
+      const ct = resp.headers.get('content-type') || '';
+      let j = null;
+      if (ct.includes('application/json')) {
+        j = await resp.json();
+      }
+
+      if (!resp.ok) {
+        const msg = (j && (j.error || j.reason)) || ('上游错误 ' + resp.status);
+        const auditReason = j && j.audit && j.audit.reason;
+        setStages('idle');
+        return showError(msg + (auditReason ? ' · ' + auditReason : ''));
+      }
+      if (!j || !j.image_b64) {
+        setStages('idle');
+        return showError('返回数据缺失');
+      }
+
+      setStages('done');
+      hideStatus();
+
+      // base64 → blob → 展示 + 下载
+      const bin = atob(j.image_b64);
+      const buf = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+      const blob = new Blob([buf], { type: j.image_mime || 'image/png' });
+      if (currentResultBlobUrl) URL.revokeObjectURL(currentResultBlobUrl);
+      currentResultBlobUrl = URL.createObjectURL(blob);
+      resultImg.src = currentResultBlobUrl;
+      resultMeta.textContent =
+        '尺寸 ' + (j.size || '?') +
+        ' · 耗时 ' + (j.elapsed_sec || '?') + 's' +
+        ' · 输出 ' + (j.image_b64 ? (j.image_b64.length * 3 / 4 / 1024).toFixed(0) : '?') + ' KB';
+      resultCard.style.display = 'block';
+      resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    } catch (e) {
+      clearTimeout(stageTimer);
+      setStages('idle');
+      showError('请求失败：' + (e.message || e));
+    } finally {
+      btnGo.disabled = false;
+    }
+  }
+
+  // ---------- UI 工具 ----------
+  function showLoading(text) {
+    statusEl.className = 'status loading';
+    statusEl.innerHTML = '<span class="spinner"></span>' + escapeHtml(text);
+    stagesEl.style.display = 'flex';
+  }
+  function showError(text) {
+    statusEl.className = 'status error';
+    statusEl.textContent = text;
+    stagesEl.style.display = 'none';
+  }
+  function hideStatus() {
+    statusEl.className = 'status';
+    statusEl.textContent = '';
+  }
+  function hideResult() {
+    resultCard.style.display = 'none';
+    if (currentResultBlobUrl) {
+      URL.revokeObjectURL(currentResultBlobUrl);
+      currentResultBlobUrl = null;
+    }
+  }
+  function setStages(active) {
+    const els = stagesEl.querySelectorAll('.stage');
+    els.forEach(el => { el.classList.remove('active', 'done'); });
+    if (active === 'idle') { stagesEl.style.display = 'none'; return; }
+    stagesEl.style.display = 'flex';
+    if (active === 'audit') {
+      els[0].classList.add('active');
+    } else if (active === 'image') {
+      els[0].classList.add('done');
+      els[1].classList.add('active');
+    } else if (active === 'done') {
+      els[0].classList.add('done');
+      els[1].classList.add('done');
+      els[2].classList.add('done');
+    }
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[c]);
+  }
+})();
+</script>
+</body>
+</html>
