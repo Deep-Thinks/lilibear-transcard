@@ -302,7 +302,9 @@ def call_gemini_audit(image_bytes):
             ]},
         ],
         "temperature": 0.2,
-        "max_tokens": 400,
+        # Gemini 3 在 thinking 模式下会先吃掉一批 reasoning tokens，
+        # max_tokens 太小会让 JSON 被截在中途。和 explorecipe 对齐到 4000。
+        "max_tokens": 4000,
     }
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     url = GEMINI_BASE_URL + "/chat/completions"
