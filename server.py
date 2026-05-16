@@ -23,6 +23,7 @@ import io
 import json
 import os
 import re
+import secrets
 import socketserver
 import ssl
 import sys
@@ -39,6 +40,7 @@ LOG_ROOT = os.path.join(DOC_ROOT, "logs")
 REFS_DIR = os.path.join(DOC_ROOT, "refs")
 IMG_LOG_DIR = os.path.join(LOG_ROOT, "images")
 EVENT_LOG_PATH = os.path.join(LOG_ROOT, "events.jsonl")
+CARDS_LOG_PATH = os.path.join(LOG_ROOT, "cards.jsonl")
 INDEX_HTML_PATH = os.path.join(DOC_ROOT, "index.html")
 
 
@@ -473,8 +475,9 @@ def call_image_gen(user_image_bytes, size):
 # ============================================================
 # 持久化生成结果（debug / 归档用）
 # ============================================================
-def _persist_output(user_bytes, output_bytes, audit_info):
-    """落盘到 logs/images/YYYYMMDD/<ts>_<id>/{input.jpg,output.png,meta.json}。"""
+def _persist_output(user_bytes, output_bytes, audit_info, short_id=None):
+    """落盘到 logs/images/YYYYMMDD/<ts>_<id>/{input.jpg,output.png,meta.json}。
+    返回 output.png 的绝对路径（供 cards.jsonl 映射）；失败返回 None。"""
     try:
         _ensure_dirs()
         day = datetime.datetime.now().strftime("%Y%m%d")
@@ -485,19 +488,100 @@ def _persist_output(user_bytes, output_bytes, audit_info):
         in_ext = _detect_image_mime(user_bytes).split("/")[-1] or "jpg"
         with open(os.path.join(sub, "input." + in_ext), "wb") as f:
             f.write(user_bytes)
-        with open(os.path.join(sub, "output.png"), "wb") as f:
+        out_path = os.path.join(sub, "output.png")
+        with open(out_path, "wb") as f:
             f.write(output_bytes)
         with open(os.path.join(sub, "meta.json"), "w", encoding="utf-8") as f:
             json.dump({
                 "ts": _now_iso(),
+                "short_id": short_id,
                 "audit": audit_info,
                 "input_bytes": len(user_bytes),
                 "output_bytes": len(output_bytes),
             }, f, ensure_ascii=False, indent=2)
-        return sub
+        return out_path
     except Exception as e:
         print("[persist] failed: %s" % e, file=sys.stderr)
         return None
+
+
+# ============================================================
+# short_id 公开分享系统（C2）
+# ============================================================
+# short_id：8 字符 URL-safe，64^8 ≈ 281T 空间，单日 <1000 张碰撞概率 <1e-10。
+# cards.jsonl 维护 short_id → 归档 PNG 的映射，供 /c/<id> 与 /api/card/<id>.png。
+_SHORT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,16}$")
+_cards_lock = threading.Lock()
+
+
+def _gen_short_id():
+    return secrets.token_urlsafe(6)[:8]
+
+
+def _existing_short_ids():
+    """读 cards.jsonl 收集已用 short_id（写入前查重用）。"""
+    ids = set()
+    try:
+        with open(CARDS_LOG_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    sid = json.loads(line).get("short_id")
+                    if sid:
+                        ids.add(sid)
+                except Exception:
+                    continue
+    except FileNotFoundError:
+        pass
+    return ids
+
+
+def _record_card(short_id, output_path, size):
+    """把 short_id → 归档 PNG 的映射追加进 cards.jsonl。
+    写入成功返回 True；失败返回 False —— 调用方据此决定是否对外暴露 short_id。"""
+    try:
+        _ensure_dirs()
+        rec = {
+            "short_id": short_id,
+            "file": os.path.relpath(output_path, DOC_ROOT),
+            "ts": _now_iso(),
+            "size": size,
+        }
+        with _cards_lock:
+            with open(CARDS_LOG_PATH, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        return True
+    except Exception as e:
+        print("[cards] write failed: %s" % e, file=sys.stderr)
+        return False
+
+
+def _lookup_card(short_id):
+    """在 cards.jsonl 里找 short_id，返回归档 PNG 的绝对路径；找不到返回 None。
+    路径必须落在 IMG_LOG_DIR 内，防 jsonl 被篡改导致目录穿越。"""
+    hit = None
+    try:
+        with open(CARDS_LOG_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if rec.get("short_id") == short_id:
+                    hit = rec   # 取最后一条匹配（理论上唯一）
+    except FileNotFoundError:
+        return None
+    if not hit:
+        return None
+    abs_path = os.path.normpath(os.path.join(DOC_ROOT, hit.get("file", "")))
+    if not abs_path.startswith(IMG_LOG_DIR):
+        return None
+    return abs_path if os.path.isfile(abs_path) else None
 
 
 # ============================================================
@@ -524,9 +608,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
             })
         if path.startswith("/refs/"):
             return self._serve_ref(path[len("/refs/"):])
+        if path.startswith("/api/card/"):
+            return self._serve_card_png(path[len("/api/card/"):])
+        if path.startswith("/c/"):
+            return self._serve_card_redirect(path[len("/c/"):])
         return self._send_json(404, {"error": "not found", "path": path})
 
-    def _serve_file(self, abs_path, ctype):
+    def _serve_card_png(self, rel):
+        """GET /api/card/<short_id>.png → 直接吐归档透卡 PNG，长缓存。"""
+        rel = rel.strip("/")
+        if rel.endswith(".png"):
+            rel = rel[:-4]
+        if not _SHORT_ID_RE.match(rel):
+            return self._send_json(400, {"error": "bad short_id"})
+        abs_path = _lookup_card(rel)
+        if not abs_path:
+            return self._send_json(404, {"error": "card not found"})
+        return self._serve_file(abs_path, "image/png",
+                                cache="public, max-age=31536000, immutable")
+
+    def _serve_card_redirect(self, rel):
+        """GET /c/<short_id> → 302 跳到 /api/card/<short_id>.png。"""
+        rel = rel.strip("/")
+        if not _SHORT_ID_RE.match(rel):
+            return self._send_json(400, {"error": "bad short_id"})
+        self.send_response(302)
+        self.send_header("Location", "/api/card/%s.png" % rel)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _serve_file(self, abs_path, ctype, cache="no-store"):
         try:
             with open(abs_path, "rb") as f:
                 data = f.read()
@@ -535,7 +647,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.end_headers()
         self.wfile.write(data)
 
@@ -640,11 +752,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
                           "size": size})
             return self._send_json(502, {"error": "图像生成失败：" + str(e)[:200]})
 
-        # 3) 落盘 + 返回 base64
+        # 3) 分配 short_id（写前查重，碰撞极低概率兜底）+ 落盘 + 映射
+        short_id = _gen_short_id()
+        existing = _existing_short_ids()
+        while short_id in existing:
+            short_id = _gen_short_id()
+
         out_b64 = base64.b64encode(out_bytes).decode("ascii")
-        saved = _persist_output(user_bytes, out_bytes, audit)
+        saved = _persist_output(user_bytes, out_bytes, audit, short_id)
+        # 仅当归档 + cards.jsonl 映射都落地，short_id 才可对外分享；
+        # 否则 /c/<id> 必然 404，宁可不暴露分享 ID。
+        shared = bool(saved) and _record_card(short_id, saved, size)
         _write_event({
             "type": "generate_done",
+            "short_id": short_id,
+            "shareable": shared,
             "audit": audit,
             "size": size,
             "elapsed_sec": elapsed,
@@ -655,6 +777,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         return self._send_json(200, {
             "ok": True,
+            "short_id": short_id if shared else None,
             "size": size,
             "elapsed_sec": elapsed,
             "audit": audit,
